@@ -1,0 +1,54 @@
+# Installed dependencies and build artifacts
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.nyc_output/
+
+# Local CFM state - never put runtime memory in Git
+data/
+state/
+memory-data/
+runtime/
+logs/
+capture-spool/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.jsonl
+*.wal
+*.shm
+*.bak
+
+# Secrets and host-specific configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+*.secrets
+secrets/
+credentials/
+local-config/
+*.local.json
+*.local.toml
+
+# Host-specific Codex runtime
+.codex/
+.cfm/
+
+# Editor/OS artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.tmp
+*.log
