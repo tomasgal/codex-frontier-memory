@@ -21,6 +21,10 @@ Candidate observations are not automatically authoritative facts. A fix is *veri
 
 CFM does **not** require Local Frontier Orchestrator, Ollama, Qwen, a web server, or cloud memory services. Relevant approaches may be adapted from [AgentMemory](https://github.com/rohitg00/agentmemory), with provenance recorded in [docs/UPSTREAM.md](docs/UPSTREAM.md).
 
+## Upstream acknowledgement
+
+CFM draws on design ideas from [AgentMemory](https://github.com/rohitg00/agentmemory), created by [Rohit Ghumare](https://github.com/rohitg00). AgentMemory is licensed under [Apache License 2.0](https://github.com/rohitg00/agentmemory/blob/main/LICENSE). No upstream source code has been imported at this stage. See [docs/UPSTREAM.md](docs/UPSTREAM.md) for source provenance, future adaptations, and attribution requirements.
+
 ## Platforms and isolation
 
 The design targets Windows PowerShell and Linux under WSL, with a common Node.js/TypeScript codebase.
