@@ -4,6 +4,10 @@ Local, persistent project memory for **OpenAI Codex CLI**.
 
 > **Status: repository skeleton only.** No runnable memory service, hooks, database, or MCP server is implemented yet.
 
+## Important notice
+
+**The contents of real Codex memory must never be uploaded or committed to GitHub. Only the source code that operates on that memory and synthetic test data may be published.**
+
 ## Scope
 
 CFM is an independent component for frontier Codex CLI. Its intended long-term memory covers:
