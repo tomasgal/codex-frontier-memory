@@ -7,6 +7,7 @@
 ## Candidate upstream
 
 - Project: [rohitg00/agentmemory](https://github.com/rohitg00/agentmemory)
+- Original project author: [Rohit Ghumare](https://github.com/rohitg00) (as identified in upstream plugin metadata).
 - Repository: `https://github.com/rohitg00/agentmemory`
 - Upstream licensing: [Apache License 2.0](https://github.com/rohitg00/agentmemory/blob/main/LICENSE)
 - Reviewed package version: `0.9.31` (historical observation; lock a source commit before copying)
