@@ -2,7 +2,7 @@
 
 Local, persistent project memory for **OpenAI Codex CLI**.
 
-> **Status: phase 2 local stdio MCP server implemented.** Manual project-scoped memory uses Node.js 24 and built-in `node:sqlite`. Automatic capture and hooks remain unimplemented.
+> **Status: phase 3 narrow hook adapter implemented.** Manual project-scoped memory and optional hook capture use Node.js 24 and built-in `node:sqlite`.
 
 ## Important notice
 
@@ -48,7 +48,7 @@ Use OS-local disks and keep these directories out of backup synchronization and 
 
 ```text
 src/
-  hooks/       Reserved for lifecycle adapters (unimplemented)
+  hooks/       Optional Codex lifecycle adapter
   capture/     Manual input normalization, redaction, capture policy
   memory/      Errors, fixes, decisions, deduplication, supersession
   storage/     OS-local paths and versioned SQLite schema
@@ -162,11 +162,32 @@ On Linux, use absolute Linux paths for the Node executable, server script and pr
 
 Each server process is permanently bound to the single project supplied at launch. `memory_status` checks authorization without opening the database. `memory_search` performs literal case-insensitive substring matching over stored record bodies, returns up to 10 records (default 5), and caps provenance to five sources per record with a `provenancePartial` flag. It is not ranked or full-text search. `memory_record` accepts a single explicitly supplied record; `memory_supersede` preserves revision evidence. These tools do not automatically capture sessions. All recalled content is untrusted, never an instruction or command. Server stdout is reserved for MCP protocol traffic; diagnostics go to stderr.
 
+## Optional lifecycle hook activation
+
+The adapter targets Codex CLI 0.167.0. Its [version-pinned input schema](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/hooks/src/schema.rs) specifies `PostToolUse` and `Stop`, including `cwd`, `session_id` and `turn_id`; `PostToolUse` adds `tool_use_id`, `tool_name`, `tool_input` and `tool_response`, while `Stop` adds `stop_hook_active` and `last_assistant_message`. Codex sends one JSON object on stdin. The [official hooks guide](https://developers.openai.com/codex/hooks/) describes discovery, trust and command handlers; the current guide can describe behavior newer than 0.167.0. The [0.167.0 implementation](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/core/src/tools/context.rs) forwards an MCP result as the tool response. Hook coverage is not complete and delivery is not guaranteed.
+
+The adapter currently captures no error candidates: `isError: true` signals failure but does not identify an actionable category, and no supported category has been allowlisted. Unknown fields and free text are ignored. `Stop` is validated and ignored; successful calls do not verify fixes. Because no hook records are written, replays produce no records or provenance. Any future capture must use a documented, explicitly allowlisted structured category and preserve replay protection and provenance. Inputs over 256 KiB and malformed or unauthorized events are discarded; the hook does not log payloads. The configured root and event `cwd` must resolve to the same exact directory, so sessions or tool calls with a different working directory are ignored.
+
+For an isolated delivery smoke test, append `--diagnostics` to the adapter command. This opt-in emits only fixed `hook: invoked` and `hook: processed` or `hook: discarded` markers to stderr; it does not persist diagnostics or include event content. `processed` means validation and authorization completed, not that a memory was saved. Diagnostics also report invocation when memory is OFF, without reading or writing memory. Remove the flag after the smoke test. Actual visibility of hook stderr depends on the host and has not been verified here.
+
+To activate manually, build and configure the local policy above, then add this example to the trusted project's `.codex/hooks.json`, substituting absolute paths and JSON-escaping backslashes and quotes as needed. Use the native shell's command quoting rules. Keep machine paths out of Git. Merge with an existing hooks file rather than overwriting its entries.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [{ "matcher": "^mcp__", "hooks": [{ "type": "command", "command": "\"<absolute node executable>\" \"<absolute CFM checkout>/dist/src/hooks/cli.js\" \"<absolute project root>\"" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "\"<absolute node executable>\" \"<absolute CFM checkout>/dist/src/hooks/cli.js\" \"<absolute project root>\"" }] }]
+  }
+}
+```
+
+Start an interactive session in that exact project and use `/hooks` to review and trust the definitions if required by your CLI. Ensure hooks are enabled in the relevant Codex configuration. Nothing here changes Codex configuration automatically. To roll back, set the CFM policy `enabled` to `false` or remove the project from its allowlist; remove these hook entries and restart Codex to stop launching the adapter. Existing memory remains on disk until deliberately removed by the owner. Windows and WSL require independent configuration and storage.
+
 ## Boundaries
 
 Manual inputs are limited to 64 KiB, with smaller per-field bounds. Known token, password, bearer, private-key and email patterns receive best-effort redaction. This is not a comprehensive privacy filter; callers must supply minimal sanitized data. Provenance references and verification descriptions are opaque text, never dereferenced or executed. All recalled records carry `untrusted: true`; consumers must keep them subordinate to current instructions.
 
-Hooks, session capture, session-state storage, automatic verification, full-text/vector search, retention, and encryption remain unimplemented. OFF gates apply to the library and MCP tools; direct filesystem access by the owning OS account is outside their authorization boundary. Policy checks are synchronous per operation, so revocation takes effect on the next operation. Same-account filesystem races or malicious database/policy tampering are outside the security boundary.
+Broader session capture, session-state storage, automatic verification, full-text/vector search, retention, and encryption remain unimplemented. OFF gates apply to the library, MCP tools, and hook writes; direct filesystem access by the owning OS account is outside their authorization boundary. Policy checks are synchronous per operation, so revocation takes effect on the next operation. Same-account filesystem races or malicious database/policy tampering are outside the security boundary.
 
 ## License
 
