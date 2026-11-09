@@ -4,6 +4,8 @@
 
 **No AgentMemory source files have been imported into CFM yet.** This document records the candidates for selective adaptation. The repository skeleton, README and AGENTS instructions are new CFM project material.
 
+Phase 1 storage, policy gating, normalization/redaction, deduplication and tests are original CFM implementations. No upstream source was copied or adapted. The SQLite API was checked against the [official Node.js 24 documentation](https://nodejs.org/docs/latest-v24.x/api/sqlite.html); the implementation was executed with Node.js 24.19.0. Runtime dependencies are built-in Node modules. `package-lock.json` pins the TypeScript compiler, Node type definitions and their development-only dependency.
+
 ## Candidate upstream
 
 - Project: [rohitg00/agentmemory](https://github.com/rohitg00/agentmemory)
