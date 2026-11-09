@@ -93,7 +93,7 @@ Memory starts **OFF**. Construction alone creates no runtime data. A missing, un
 }
 ```
 
-Replace the placeholder with the result of `projectIdentity(absoluteProjectRoot)` from the library. It resolves directory links and folds Windows path casing. The allowlist matches **exact roots**; it grants no access to child directories or other repositories. Keep the policy outside Git and make it writable only by the local account. Phase 1 provides no automatic policy writer or enablement command.
+Replace the placeholder with the result of `projectIdentity(absoluteProjectRoot)` from the library. It resolves directory links and folds Windows path casing. The allowlist matches **exact roots**; it grants no access to child directories or other repositories. Keep the policy outside Git and make it writable only by the local account. The optional bootstrap below writes this policy with explicit consent for one exact project.
 
 Set `enabled` to `false` to switch OFF. `put`, `get`, `list`, and `supersede` reread policy before every operation, including on an existing store. Denied operations throw `MemoryAccessError` and leave the database unchanged; they do not create a database or initialize its schema. Removing a project from the allowlist immediately revokes its access. Closing a store only releases resources and remains available while OFF.
 
@@ -141,6 +141,45 @@ Deduplication hashes normalized content, kind, epistemic status, linked error, r
 `supersede(oldId, replacementId, reason, source)` records a revision between compatible records in the same project. It retains the original content/status, evidence, source references, and revision reason. Replacements must be active; cycles are refused. `get` returns historical records, and `list` excludes them unless `includeSuperseded: true`. Lists default to 100 results and accept limits from 1 to 500.
 
 ## Activate the local MCP server
+
+### CFM Lite bootstrap (Codex CLI 0.167.0)
+
+Install Node.js **24.x** (including npm) and Git first. Use an existing project on a local, unsynchronized disk. In a new Windows PowerShell terminal:
+
+```powershell
+npm.cmd install --global @openai/codex@0.167.0
+$repo = Read-Host 'CFM repository clone URL'
+$project = Read-Host 'Exact existing project path'
+$source = Join-Path $env:LOCALAPPDATA 'cfm-lite-source'
+git clone $repo $source
+Set-Location $source
+node scripts/bootstrap.mjs install --project "$project" --dry-run
+node scripts/bootstrap.mjs install --project "$project"
+node scripts/bootstrap.mjs status --project "$project"
+```
+
+In WSL/Linux, install Node, npm, Git, and Codex inside Linux, then run in Bash:
+
+```bash
+npm install --global @openai/codex@0.167.0
+read -r -p 'CFM repository clone URL: ' repo
+read -r -p 'Exact existing Linux project path: ' project
+git clone "$repo" "$HOME/.local/share/cfm-lite-source"
+cd "$HOME/.local/share/cfm-lite-source"
+node scripts/bootstrap.mjs install --project "$project" --dry-run
+node scripts/bootstrap.mjs install --project "$project"
+node scripts/bootstrap.mjs status --project "$project"
+```
+
+`install --project` authorizes only that canonical root. It validates all four tools, requires Codex 0.167.0, runs `npm ci --ignore-scripts` and `npm run build`, and validates the candidate TOML with the installed Codex CLI in a temporary, isolated `CODEX_HOME`. It adds a marked project-local MCP block and selective guidance to the existing `AGENTS.md`. Only `memory_search` gets `approval_mode = "approve"`; writes explicitly use `prompt`, as supported by the [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp). Start a new interactive Codex session in the exact project, trust the project through Codex if necessary, and check `memory_status`. Bootstrap does not change project trust.
+
+Configuration stays untracked through Git's local `info/exclude`; policy and rollback receipts stay in the existing OS-local CFM directory. The server receives that OS's storage environment explicitly. Windows and WSL need separate source/project checkouts and stores. Bootstrap creates no database or hooks. Repeat installation preserves the managed content and respects later OFF/revocation decisions. Existing unrelated configuration and authorizations are preserved; an OFF policy containing other roots requires manual reconciliation.
+
+Rollback with `node scripts/bootstrap.mjs uninstall --project "$project"` (PowerShell or Bash); add `--dry-run` to preview. Uninstall removes owned additions and restores prior authorization while preserving later unrelated edits and existing memory. Failed configuration writes roll back automatically; after an interrupted transaction, `uninstall` restores the journaled state. Modified managed blocks or conflicting later edits require manual reconciliation. Empty directories and build dependencies may remain.
+
+Dry-run performs read-only preflight and reports intended files; it skips build and isolated TOML validation. Status reports policy authorization and managed-file presence, without opening memory. Tracked config, linked paths, recognized synchronization roots/shared mounts, inherited CFM registration, and unmanaged existing CFM blocks are refused. Custom synchronization, bind mounts, and mapped Windows drives cannot all be detected: keep source, project, temporary files, and runtime state on genuinely local disks. Bootstrap tests use synthetic CLI stubs; real interactive host behavior still requires the post-install `memory_status` check.
+
+### Manual activation
 
 Build with `npm ci --ignore-scripts` and `npm run build`. Choose one existing project root and determine its canonical identity from the CFM checkout:
 
