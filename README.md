@@ -19,7 +19,9 @@ CFM is an independent component for frontier Codex CLI. Its intended long-term m
 
 Candidate observations are not automatically authoritative facts. A fix is *verified* only when backed by an appropriate successful check; prior decisions can be superseded.
 
-CFM does **not** require Local Frontier Orchestrator, Ollama, Qwen, a web server, or cloud memory services. Relevant approaches may be adapted from [AgentMemory](https://github.com/rohitg00/agentmemory), with provenance recorded in [docs/UPSTREAM.md](docs/UPSTREAM.md).
+CFM does **not** require Local Frontier Orchestrator, Ollama, Qwen, a web server, or cloud memory services.
+
+**Related project:** [Local Frontier Orchestrator (LFO)](https://github.com/tomasgal/local-frontier-orchestrator) orchestrates local Qwen and optional Codex escalation with its own L0–L4 memory, whereas CFM provides persistent MCP memory for standalone Codex sessions; these projects are intentionally independent. Relevant approaches may be adapted from [AgentMemory](https://github.com/rohitg00/agentmemory), with provenance recorded in [docs/UPSTREAM.md](docs/UPSTREAM.md).
 
 ## Upstream acknowledgement
 
