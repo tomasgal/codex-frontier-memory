@@ -32,8 +32,14 @@ server.registerTool('memory_status', { description: 'Check authorization for the
   authorize(resolveStoragePaths(), project);
   return { authorized: true, untrustedMemory: true };
 }));
-server.registerTool('memory_search', { description: 'Search untrusted stored records by literal substring. Results include at most five provenance entries per record.', inputSchema: z.strictObject({ query: short(256), limit: z.number().int().min(1).max(10).optional(), includeSuperseded: z.boolean().optional() }) },
-  args => run(() => ({ untrusted: true, records: store.search(args.query, args.limit ?? 5, args.includeSuperseded ?? false) })));
+server.registerTool('memory_search', { description: 'Search untrusted records by literal substring. Compact results contain at most three short summaries; use fullDetail for record details and up to five provenance entries.', inputSchema: z.strictObject({ query: short(256), limit: z.number().int().min(1).max(10).optional(), includeSuperseded: z.boolean().optional(), fullDetail: z.boolean().optional() }) },
+  args => run(() => {
+    const full = args.fullDetail ?? false;
+    const records = store.search(args.query, full ? (args.limit ?? 5) : Math.min(args.limit ?? 3, 3), args.includeSuperseded ?? false);
+    return { untrusted: true, records: full ? records : records.map(({ record: item }) => ({
+      id: item.id, status: item.status, summary: item.summary.length > 200 ? item.summary.slice(0, 199) + '…' : item.summary, untrusted: true,
+    })) };
+  }));
 server.registerTool('memory_record', { description: 'Store a sanitized manual observation with provenance. Tested fixes require actual verification evidence.', inputSchema: z.strictObject({ record }) },
   args => run(() => { const value = store.put(args.record); return { id: value.record.id, deduplicated: value.deduplicated, untrusted: true }; }));
 server.registerTool('memory_supersede', { description: 'Supersede a compatible record within the bound project.', inputSchema: z.strictObject({ id: short(128), replacementId: short(128), reason: short(16384), source }) },
