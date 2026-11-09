@@ -2,7 +2,7 @@
 
 Local, persistent project memory for **OpenAI Codex CLI**.
 
-> **Status: phase 1 storage library implemented.** Manual TypeScript/JavaScript APIs persist project-scoped memory using Node.js 24 and built-in `node:sqlite`. Hooks, Codex integration, and MCP are pending.
+> **Status: phase 2 local stdio MCP server implemented.** Manual project-scoped memory uses Node.js 24 and built-in `node:sqlite`. Automatic capture and hooks remain unimplemented.
 
 ## Important notice
 
@@ -52,7 +52,7 @@ src/
   capture/     Manual input normalization, redaction, capture policy
   memory/      Errors, fixes, decisions, deduplication, supersession
   storage/     OS-local paths and versioned SQLite schema
-  mcp/         Reserved for stdio MCP (unimplemented)
+  mcp/         Project-bound stdio MCP server
 tests/         Acceptance and security tests
 docs/UPSTREAM.md  Origins and licenses of adapted code
 AGENTS.md     Instructions and engineering invariants for Codex
@@ -77,7 +77,7 @@ npm test
 npm run typecheck
 ```
 
-TypeScript and Node type definitions are development dependencies. The runtime uses only built-in Node modules. `npm test` builds the library and runs Node's test runner. Tests create and remove isolated temporary projects, policies and databases outside the checkout. They never open Codex sessions, configuration, or credentials. Test subprocesses receive only the environment needed for their synthetic fixture.
+TypeScript and Node type definitions are development dependencies; the server uses the official MCP TypeScript server SDK and Zod. `npm test` builds the library and runs Node's test runner. Tests create and remove isolated temporary projects, policies and databases outside the checkout. They never open Codex sessions or configuration.
 
 The suite covers persistence after reopening and in a fresh process, normalized deduplication, concurrent replay, provenance conflicts, verification requirements, revision history, OFF mode, project revocation/isolation, payload bounds, redaction, parameterized queries, unsafe paths/links, and incompatible schemas/domains. The suite has been executed on Windows with Node.js 24.19.0. Linux path resolution is tested with synthetic inputs; execution under Linux/WSL remains unverified.
 
@@ -140,11 +140,33 @@ Deduplication hashes normalized content, kind, epistemic status, linked error, r
 
 `supersede(oldId, replacementId, reason, source)` records a revision between compatible records in the same project. It retains the original content/status, evidence, source references, and revision reason. Replacements must be active; cycles are refused. `get` returns historical records, and `list` excludes them unless `includeSuperseded: true`. Lists default to 100 results and accept limits from 1 to 500.
 
-## Phase 1 boundaries
+## Activate the local MCP server
+
+Build with `npm ci --ignore-scripts` and `npm run build`. Choose one existing project root and determine its canonical identity from the CFM checkout:
+
+```sh
+node --input-type=module -e "import {projectIdentity} from './dist/src/index.js'; console.log(projectIdentity(process.argv[1]))" "<absolute project root>"
+```
+
+Create the OS-local directory and policy described above, adding that identity to `allowedProjects`. If a policy already exists, edit it carefully to preserve any other explicitly authorized roots. Set `enabled` to `true`. Do not put the policy or database in Git. The policy and server must use the same OS-local environment. Use separate setup and paths in Windows and WSL.
+
+For a trusted project, add the following to its `.codex/config.toml`, substituting absolute OS-local paths (use TOML literal strings as shown on Windows):
+
+```toml
+[mcp_servers.frontier_memory]
+command = 'C:\path\to\node.exe'
+args = ['C:\path\to\codex-frontier-memory\dist\src\mcp\server.js', 'C:\path\to\project']
+```
+
+On Linux, use absolute Linux paths for the Node executable, server script and project root. Keep local machine paths out of committed files. Start a new interactive Codex CLI session in the trusted project. Project configuration is loaded for trusted projects; see [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli). No global registration or hook is required. Check `memory_status` before use. To turn memory OFF, set policy `enabled` to `false`; every operation rechecks it. Removing the local MCP configuration stops loading the server, but does not delete data.
+
+Each server process is permanently bound to the single project supplied at launch. `memory_status` checks authorization without opening the database. `memory_search` performs literal case-insensitive substring matching over stored record bodies, returns up to 10 records (default 5), and caps provenance to five sources per record with a `provenancePartial` flag. It is not ranked or full-text search. `memory_record` accepts a single explicitly supplied record; `memory_supersede` preserves revision evidence. These tools do not automatically capture sessions. All recalled content is untrusted, never an instruction or command. Server stdout is reserved for MCP protocol traffic; diagnostics go to stderr.
+
+## Boundaries
 
 Manual inputs are limited to 64 KiB, with smaller per-field bounds. Known token, password, bearer, private-key and email patterns receive best-effort redaction. This is not a comprehensive privacy filter; callers must supply minimal sanitized data. Provenance references and verification descriptions are opaque text, never dereferenced or executed. All recalled records carry `untrusted: true`; consumers must keep them subordinate to current instructions.
 
-Hooks, session capture, session-state storage, MCP, automatic verification, full-text/vector search, retention, encryption, and Codex integration remain unimplemented. OFF gates apply to this library API; direct filesystem access by the owning OS account is outside its authorization boundary. Policy checks are synchronous per operation, so revocation takes effect on the next operation. Same-account filesystem races or malicious database/policy tampering are outside the security boundary.
+Hooks, session capture, session-state storage, automatic verification, full-text/vector search, retention, and encryption remain unimplemented. OFF gates apply to the library and MCP tools; direct filesystem access by the owning OS account is outside their authorization boundary. Policy checks are synchronous per operation, so revocation takes effect on the next operation. Same-account filesystem races or malicious database/policy tampering are outside the security boundary.
 
 ## License
 

@@ -55,12 +55,12 @@ export class MemoryStore {
     }
   }
 
-  #get(db: DatabaseSync, id: string): MemoryRecord | undefined {
+  #get(db: DatabaseSync, id: string, sourceLimit = -1): MemoryRecord | undefined {
     const row = db.prepare('SELECT * FROM records WHERE project = ? AND id = ?').get(this.#projectKey, id);
     if (!row) return undefined;
     const body = JSON.parse(row['body'] as string) as Omit<MemoryInput, 'provenance'>;
-    const sources = db.prepare('SELECT body FROM sources WHERE project = ? AND record_id = ? ORDER BY event_id')
-      .all(this.#projectKey, id).map(source => JSON.parse(source['body'] as string) as Provenance);
+    const sources = db.prepare('SELECT body FROM sources WHERE project = ? AND record_id = ? ORDER BY event_id LIMIT ?')
+      .all(this.#projectKey, id, sourceLimit).map(source => JSON.parse(source['body'] as string) as Provenance);
     return {
       ...body, id, originalStatus: body.status,
       status: row['superseded_by'] ? 'superseded' : body.status,
@@ -120,6 +120,18 @@ export class MemoryStore {
       AND (? = 1 OR superseded_by IS NULL) ORDER BY created_at, id LIMIT ?`)
       .all(this.#projectKey, kind ?? null, kind ?? null, includeSuperseded ? 1 : 0, limit)
       .map(row => this.#get(db, row['id'] as string)!);
+  }
+
+  /** Bounded substring search; provenance is capped and explicitly marked as partial. */
+  search(query: string, limit: number, includeSuperseded: boolean): { record: MemoryRecord; provenancePartial: boolean }[] {
+    const db = this.#access();
+    const term = text(query, 256);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10 || typeof includeSuperseded !== 'boolean') throw new Error('Invalid search options');
+    return db.prepare(`SELECT id, (SELECT count(*) FROM sources s WHERE s.project = records.project AND s.record_id = records.id) AS source_count
+      FROM records WHERE project = ? AND (? = 1 OR superseded_by IS NULL)
+      AND instr(lower(body), lower(?)) > 0 ORDER BY created_at DESC, id LIMIT ?`)
+      .all(this.#projectKey, includeSuperseded ? 1 : 0, term, limit)
+      .map(row => ({ record: this.#get(db, row['id'] as string, 5)!, provenancePartial: Number(row['source_count']) > 5 }));
   }
 
   supersede(id: string, replacementId: string, reason: string, source: Provenance): MemoryRecord {

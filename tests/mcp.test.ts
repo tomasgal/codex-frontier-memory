@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { test } from 'node:test';
+import { projectIdentity } from '../src/index.js';
+
+test('stdio MCP enforces policy and persists synthetic records across restarts', async t => {
+  const root = mkdtempSync(path.join(realpathSync.native(tmpdir()), 'cfm-mcp-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'project');
+  const other = path.join(root, 'other');
+  const state = path.join(root, 'state');
+  mkdirSync(project); mkdirSync(other); mkdirSync(state);
+  const domain = process.platform === 'win32' ? 'win32' : 'linux';
+  const directory = path.join(state, 'codex-frontier-memory', domain);
+  const policy = path.join(directory, 'policy.json');
+  const env = { ...process.env, LOCALAPPDATA: state, XDG_STATE_HOME: state };
+  const writePolicy = (enabled: boolean) => writeFileSync(policy, JSON.stringify({ version: 1, enabled, allowedProjects: [projectIdentity(project)] }));
+  const entry = path.resolve('dist/src/mcp/server.js');
+  const start = async (target: string) => {
+    const child = spawn(process.execPath, [entry, target], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.setEncoding('utf8'); child.stderr.on('data', s => { stderr += s; });
+    const pending = new Map<number, { resolve: (value: any) => void; reject: (reason: Error) => void }>();
+    let id = 0;
+    createInterface({ input: child.stdout }).on('line', line => {
+      const message = JSON.parse(line); // Any non-protocol stdout fails the test.
+      if (typeof message.id === 'number') { pending.get(message.id)?.resolve(message); pending.delete(message.id); }
+    });
+    child.on('exit', () => { for (const p of pending.values()) p.reject(new Error(`Server exited: ${stderr}`)); });
+    const request = (method: string, params: unknown) => new Promise<any>((resolve, reject) => {
+      const current = ++id; pending.set(current, { resolve, reject });
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: current, method, params }) + '\n');
+    });
+    const init = await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'synthetic-test', version: '1' } });
+    assert.ok(init.result?.serverInfo);
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+    return { request, close: async () => { child.stdin.end(); await new Promise<void>(resolve => child.once('exit', () => resolve())); } };
+  };
+  const call = (s: Awaited<ReturnType<typeof start>>, name: string, args: unknown) => s.request('tools/call', { name, arguments: args });
+  const value = (message: any) => JSON.parse(message.result.content[0].text);
+  const source = { sourceRef: 'synthetic:fixture', eventId: 'fixture-1', observedAt: '2026-01-01T00:00:00Z' };
+  const input = { kind: 'error', status: 'observed_error', summary: 'Synthetic failure', detail: 'Fixture detail', provenance: source };
+  const s = await start(project);
+  const tools = await s.request('tools/list', {});
+  assert.deepEqual(tools.result.tools.map((tool: any) => tool.name).sort(), ['memory_record', 'memory_search', 'memory_status', 'memory_supersede']);
+  assert.equal((await call(s, 'memory_status', {})).result.isError, true);
+  assert.equal((await call(s, 'memory_record', { record: input })).result.isError, true);
+  assert.equal(existsSync(path.join(directory, 'memory.sqlite')), false);
+  mkdirSync(directory, { recursive: true }); writePolicy(true);
+  assert.equal(value(await call(s, 'memory_status', {})).authorized, true);
+  assert.equal((await call(s, 'memory_search', { query: '', extra: true })).result.isError, true);
+  assert.equal((await call(s, 'memory_record', { record: { ...input, extra: 1 } })).result.isError, true);
+  const first = value(await call(s, 'memory_record', { record: input }));
+  const second = value(await call(s, 'memory_record', { record: input }));
+  assert.equal(first.deduplicated, false); assert.equal(second.deduplicated, true); assert.equal(first.id, second.id);
+  const replacement = value(await call(s, 'memory_record', { record: { ...input, summary: 'Synthetic revision', provenance: { ...source, eventId: 'fixture-2' } } }));
+  assert.equal(value(await call(s, 'memory_supersede', { id: first.id, replacementId: replacement.id, reason: 'Updated fixture', source })).supersededBy, replacement.id);
+  writePolicy(false);
+  for (const [name, args] of [['memory_status', {}], ['memory_search', { query: 'Synthetic' }], ['memory_record', { record: input }], ['memory_supersede', { id: first.id, replacementId: replacement.id, reason: 'Updated fixture', source }]] as const) assert.equal((await call(s, name, args)).result.isError, true);
+  await s.close();
+  writePolicy(true);
+  const denied = await start(other);
+  assert.equal((await call(denied, 'memory_search', { query: 'Synthetic' })).result.isError, true);
+  assert.equal((await call(denied, 'memory_record', { record: input })).result.isError, true);
+  await denied.close();
+  const restarted = await start(project);
+  const found = value(await call(restarted, 'memory_search', { query: 'Synthetic', includeSuperseded: true }));
+  assert.equal(found.records.length, 2);
+  assert.ok(found.records.every((item: any) => item.record.untrusted));
+  assert.equal(found.records.find((item: any) => item.record.id === first.id).record.status, 'superseded');
+  await restarted.close();
+});
