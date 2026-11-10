@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { deploy, editConfig, editHooks, EVENTS } from '../scripts/cfm-context-config.mjs';
+import { commandFor, deploy, editConfig, editHooks, EVENTS } from '../scripts/cfm-context-config.mjs';
 
 const command = '"C:\\Node\\node.exe" "C:\\CFM\\context-cli.js" "C:\\ID" --global';
 
@@ -16,6 +17,9 @@ test('TOML edits are root-level, reentrant and removable', () => {
   assert.equal(editConfig('model_post_turn_compact_threshold_percent = 80\n'), 'model_post_turn_compact_threshold_percent = 80\n');
   assert.throws(() => editConfig('model_post_turn_compact_threshold_percent = 70\n'), /conflicts/);
   assert.throws(() => editConfig('# BEGIN CFM ADAPTIVE CONTEXT\n'), /Incomplete/);
+  const profiled = '[profile.custom]\nmodel_post_turn_compact_threshold_percent = 60\n';
+  assert.ok(editConfig(profiled).startsWith('# BEGIN CFM ADAPTIVE CONTEXT'));
+  assert.ok(editConfig(profiled).endsWith(profiled));
 });
 
 test('global hooks merge with existing entries, remain idempotent, and can be removed', () => {
@@ -58,4 +62,17 @@ test('context deployment installs, verifies and uninstalls safely without privat
   assert.equal(readFileSync(config, 'utf8'), originalConfig);
   assert.deepEqual(JSON.parse(readFileSync(hooks, 'utf8')), JSON.parse(originalHooks));
   assert.throws(() => deploy({ mode: 'status', ...args }), /differs/);
+});
+test('Windows cmd shell starts the managed hook executable with its global identity', t => {
+  if (process.platform !== 'win32') return t.skip('Windows shell test');
+  const root = mkdtempSync(path.join(tmpdir(), 'cfm-hook-shell-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const script = path.join(root, 'synthetic context-cli.js');
+  const identity = path.join(root, 'memory identity');
+  mkdirSync(identity);
+  writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));");
+  const command = commandFor(process.execPath, script, identity);
+  const execution = spawnSync('cmd.exe', ['/d', '/s', '/c', command], { encoding: 'utf8' });
+  assert.equal(execution.status, 0, execution.stderr);
+  assert.deepEqual(JSON.parse(execution.stdout), [identity, '--global']);
 });
