@@ -346,6 +346,10 @@ export function globalBootstrap(options, injectedTools) {
     } else if (options.action === 'uninstall' && hasAdaptive) {
       deployContext({ mode: 'uninstall', ...context });
       contextApplied = true;
+      // The context helper writes an empty config file when its last managed
+      // block is removed; restore the original absent file of a fresh install.
+      const originalConfig = receipt.changes.find(change => change.file === configFile)?.before;
+      if (originalConfig === null && read(configFile) === '') write(configFile, null);
     }
     write(receiptFile, options.action === 'install' ? serialize({ ...journal, phase: 'installed', previousReceipt: null }) : null);
   } catch (error) {
