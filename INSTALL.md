@@ -24,14 +24,20 @@ $source = Join-Path $env:LOCALAPPDATA 'cfm-lite-source'
 git clone https://github.com/tomasgal/codex-frontier-memory.git $source
 Set-Location $source
 
+# Default: only local MCP memory
 node scripts/global-bootstrap.mjs install --dry-run
 node scripts/global-bootstrap.mjs install
+node scripts/global-bootstrap.mjs status
+
+# Optional: enable adaptive context supervision and native 80% compaction
+node scripts/global-bootstrap.mjs install --adaptive-context --dry-run
+node scripts/global-bootstrap.mjs install --adaptive-context
 node scripts/global-bootstrap.mjs status
 ```
 
 If `$source` already exists, update the clean checkout with `git -C $source pull --ff-only` rather than cloning on top of it. Review `--dry-run` before installing. The installer builds with `npm ci --ignore-scripts` and `npm run build` and validates an isolated Codex MCP configuration before any persistent changes.
 
-**Restart Codex** (new session, any trusted working directory), inspect `/mcp`, and call `memory_status`. Expect `authorized: true` and `untrustedMemory: true`. Installer `status` checks registration and policy without opening a memory database; only the live Codex check verifies MCP communication. An actual memory write creates the SQLite database lazily.
+**Restart Codex** (new session, any trusted working directory), inspect `/mcp`, and call `memory_status`. If adaptive context was enabled, inspect `/hooks` and trust the three managed hook handlers if necessary. The installer `status` reports `adaptiveContext: installed` when the hook registration and 80% configuration are consistent. Expect `authorized: true` and `untrustedMemory: true`. Installer `status` checks registration and policy without opening a memory database; only the live Codex check verifies MCP communication. An actual memory write creates the SQLite database lazily.
 
 Local installation paths (resolved from the receiving user's environment):
 
@@ -54,13 +60,15 @@ node scripts/global-bootstrap.mjs uninstall --dry-run
 node scripts/global-bootstrap.mjs uninstall
 ```
 
-Repeated installation is idempotent. An installer never silently re-enables a deliberately disabled/revoked policy. Uninstall removes only its managed configuration and consent changes, preserving unrelated settings and **never deleting `memory.sqlite`**. Modified managed blocks cause a safe failure. Interrupted transactions can be rolled back using `uninstall` when no later edits conflict.
+Repeated installation is idempotent. An installer never silently re-enables a deliberately disabled/revoked policy. Running `install --adaptive-context` against an existing, healthy public global install adds only the optional context settings; it does not rebuild or replace existing memory. Uninstall automatically removes the optional CFM adaptive hook registration and its managed compaction setting, as well as the CFM MCP registration. It preserves unrelated settings and **never deletes `memory.sqlite` or `context.sqlite`**. Modified managed blocks cause a safe failure. Interrupted transactions can be rolled back using `uninstall` when no later edits conflict.
 
 To turn CFM OFF immediately, set `"enabled": false` in the local `policy.json`. All memory reads and writes recheck this consent. Runtime SQLite files are not encrypted and must not be synchronized across computers. Windows and WSL retain independent memory domains.
 
 ### Public edition boundaries
 
-The public global installer exposes **four** tools: `memory_status`, `memory_search`, `memory_record` and `memory_supersede`. It provides no private archives, Handoff integration, cloud sync, automatic transcript capture, global hooks or optional adaptive context supervisor. Install does not read or migrate existing memory. It never requires personal GitHub credentials and does not transmit memory data.
+The public global installer exposes **four** tools: `memory_status`, `memory_search`, `memory_record` and `memory_supersede`. The optional `--adaptive-context` switch adds three **Codex-native hooks** (`UserPromptSubmit`, `PreCompact`, `PostCompact`) and sets `model_post_turn_compact_threshold_percent = 80`. It tracks approximate token-window pressure and prompts the agent to preserve short verified notes; native Codex handles actual compaction. This is **not** a universal token compressor, and no percentage savings in billable tokens has been established. Its `context.sqlite` contains hashed event/session identifiers and counters, not raw prompts. See [Adaptive context supervision](docs/ADAPTIVE_CONTEXT.md) for thresholds, telemetry limitations, and rollback.
+
+The public installation provides no private archives, Handoff integration, cloud sync, or automatic transcript capture. It does not read or migrate existing memory, never requires personal GitHub credentials, and does not transmit memory data.
 
 The installer reads only relevant local Codex configuration and CFM policy to preserve them. It rejects recognizable synced folders and linked/nonregular paths, but custom synchronization and unusual reparse paths still require manual review.
 
