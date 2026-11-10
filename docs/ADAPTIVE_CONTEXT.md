@@ -27,6 +27,20 @@ does not persist prompts, tool responses or transcript content. Usage data
 are approximate and may be absent or stale; never use the observer as a hard
 overflow safety mechanism. The OS-local SQLite database is not encrypted.
 
+## Global Windows bootstrap
+
+The shared Windows bootstrap in the private handoff repository now runs
+scripts/cfm-context-config.mjs after updating and building this public CFM source.
+It updates the user-level Codex TOML and global CODEX_HOME/hooks.json and
+configures native post-turn compaction at 80%. Repeated installs are idempotent.
+The existing global memory identity and MCP bridge remain intact. The user may
+need to trust the newly configured hooks once via /hooks in Codex.
+
+For inspection or rollback (all paths must be absolute):
+
+    node scripts/cfm-context-config.mjs status CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT
+    node scripts/cfm-context-config.mjs uninstall CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT
+
 ## Enable on a trusted project (manual installation)
 
 First build CFM with Node 24: npm ci --ignore-scripts && npm run build.
