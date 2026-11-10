@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/tests/*.test.js tests/bootstrap.test.mjs tests/context-install.test.mjs"
+    "test": "npm run build && node --test dist/tests/*.test.js tests/bootstrap.test.mjs tests/context-install.test.mjs tests/global-bootstrap.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
