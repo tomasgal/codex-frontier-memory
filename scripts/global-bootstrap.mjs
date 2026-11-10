@@ -41,6 +41,9 @@ function within(parent, child) {
 export function requirePrivateLocal(file, env = process.env) {
   if (!path.isAbsolute(file)) fail('Path must be absolute');
   const canonical = canonicalPath(file);
+  if (process.platform === 'win32' && !/^[a-z]:\\/i.test(canonical)) {
+    fail('Only local Windows drive paths are supported; UNC paths are forbidden');
+  }
   if (/(?:^|[\\/])(?:onedrive[^\\/]*|dropbox|google ?drive|icloud[^\\/]*|nextcloud|syncthing)(?:[\\/]|$)/i.test(canonical)) {
     fail('Synchronized directory is not supported');
   }
@@ -162,7 +165,10 @@ function execute(tool, args, options = {}) {
 function buildAndValidate(candidate, tools) {
   if (execute(tools.codex, ['--version']) !== 'codex-cli 0.167.0') fail('Requires Codex CLI 0.167.0');
   execute(tools.npm, ['--version']);
-  const temporary = mkdtempSync(path.join(realpathSync.native(tmpdir()), 'cfm-global-validate-'));
+  const temporaryRoot = realpathSync.native(tmpdir());
+  requirePrivateLocal(temporaryRoot);
+  rejectGitParent(path.join(temporaryRoot, 'cfm-global-validate-check'));
+  const temporary = mkdtempSync(path.join(temporaryRoot, 'cfm-global-validate-'));
   try {
     writeFileSync(path.join(temporary, 'config.toml'), candidate, { mode: 0o600 });
     const env = { ...process.env, CODEX_HOME: temporary };
@@ -262,7 +268,8 @@ export function globalBootstrap(options, injectedTools) {
     const addition = configChange.after.slice((configChange.before ?? '').length);
     if (!addition.includes(BEGIN) || !addition.includes(END)) fail('Invalid managed configuration');
     const afterConfig = removeBlock(beforeConfig, addition);
-    changes.push({ file: configFile, before: beforeConfig, after: afterConfig || null });
+    changes.push({ file: configFile, before: beforeConfig,
+      after: afterConfig === '' && configChange.before === null ? null : afterConfig });
     const policyChange = receipt.changes.find(change => change.file === paths.policy);
     if (policyChange) {
       let afterPolicy;
