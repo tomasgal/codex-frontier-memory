@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * OS-local configuration deployment for CFM adaptive context supervision.
- * Usage: node cfm-context-config.mjs install|status|uninstall|dry-run CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT
+ * Usage: node cfm-context-config.mjs install|status|uninstall|dry-run|uninstall-dry-run CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT
  * This script edits only the CFM-managed TOML block and CFM-managed hook groups.
  */
 import { randomUUID } from 'node:crypto';
@@ -145,7 +145,7 @@ function atomicWrite(target, value) {
 }
 
 export function deploy({ mode, codexHome, node, contextCli, identity }) {
-  if (!['install', 'dry-run', 'status', 'uninstall'].includes(mode)) throw new Error('Unknown deployment mode');
+  if (!['install', 'dry-run', 'status', 'uninstall', 'uninstall-dry-run'].includes(mode)) throw new Error('Unknown deployment mode');
   if (![codexHome, node, contextCli, identity].every(x => typeof x === 'string' && path.isAbsolute(x))) {
     throw new Error('Absolute deployment paths required');
   }
@@ -157,14 +157,14 @@ export function deploy({ mode, codexHome, node, contextCli, identity }) {
   const hooks = path.join(codexHome, 'hooks.json');
   const before = [readTarget(config), readTarget(hooks)];
   const command = commandFor(node, contextCli, identity);
-  const after = [editConfig(before[0].value, mode === 'uninstall' ? 'uninstall' : 'install'),
+  const after = [editConfig(before[0].value, (mode === 'uninstall' || mode === 'uninstall-dry-run') ? 'uninstall' : 'install'),
     editHooks(before[1].value, command, mode === 'uninstall' ? 'uninstall' : 'install')];
   const changed = after.map((value, i) => value !== before[i].value);
   if (mode === 'status') {
     if (changed.some(Boolean)) throw new Error('Adaptive context registration differs from the expected configuration');
     return { mode, changed: false };
   }
-  if (mode === 'dry-run') return { mode, changed: changed.some(Boolean) };
+  if (mode === 'dry-run' || mode === 'uninstall-dry-run') return { mode, changed: changed.some(Boolean) };
   const targets = before.map(x => x.destination);
   // Detect link retargeting before writing, including links in a different
   // configuration. A link resolution change must stop the installation.
