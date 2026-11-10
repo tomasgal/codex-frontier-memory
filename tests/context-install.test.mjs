@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -77,4 +78,56 @@ test('Windows cmd shell starts the managed hook executable with its global ident
   });
   assert.equal(execution.status, 0, execution.stderr);
   assert.deepEqual(JSON.parse(execution.stdout), [identity, '--global']);
+});
+
+
+test('symbolic Codex config is edited at its local target while preserving the link and unrelated settings', t => {
+  // The target is created under the current user's home to exercise the
+  // account-local security boundary used by the production installer.
+  const root = mkdtempSync(path.join(homedir(), 'cfm-link-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, 'codex');
+  const targetDirectory = path.join(root, 'config-target');
+  const identity = path.join(root, 'identity');
+  mkdirSync(codexHome);
+  mkdirSync(targetDirectory);
+  mkdirSync(identity);
+  const contextCli = path.join(root, 'context-cli.js');
+  writeFileSync(contextCli, '// synthetic');
+  const target = path.join(targetDirectory, 'target.toml');
+  const initial = 'model = "synthetic"\n[other]\nsetting = true\n';
+  writeFileSync(target, initial);
+  const config = path.join(codexHome, 'config.toml');
+  try { symlinkSync(target, config, 'file'); }
+  catch (e) { return t.skip('File symlink creation unavailable on this host: ' + e.code); }
+  const args = { codexHome, node: process.execPath, contextCli, identity };
+  assert.equal(lstatSync(config).isSymbolicLink(), true);
+  assert.equal(deploy({ mode: 'dry-run', ...args }).changed, true);
+  assert.equal(readFileSync(target, 'utf8'), initial);
+  assert.equal(deploy({ mode: 'install', ...args }).changed, true);
+  assert.equal(deploy({ mode: 'status', ...args }).changed, false);
+  assert.equal(lstatSync(config).isSymbolicLink(), true);
+  assert.equal(readFileSync(target, 'utf8').includes('model_post_turn_compact_threshold_percent = 80'), true);
+  assert.equal(deploy({ mode: 'uninstall', ...args }).changed, true);
+  assert.equal(readFileSync(target, 'utf8'), initial);
+  assert.equal(lstatSync(config).isSymbolicLink(), true);
+});
+
+test('broken Codex config symlink aborts before changing the link or installing hooks', t => {
+  const root = mkdtempSync(path.join(homedir(), 'cfm-broken-link-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, 'codex');
+  const identity = path.join(root, 'identity');
+  mkdirSync(codexHome);
+  mkdirSync(identity);
+  const contextCli = path.join(root, 'context-cli.js');
+  writeFileSync(contextCli, '// synthetic');
+  const config = path.join(codexHome, 'config.toml');
+  try { symlinkSync(path.join(root, 'missing.toml'), config, 'file'); }
+  catch (e) { return t.skip('File symlink creation unavailable on this host: ' + e.code); }
+  assert.throws(() => deploy({
+    mode: 'install', codexHome, identity, contextCli, node: process.execPath,
+  }));
+  assert.equal(lstatSync(config).isSymbolicLink(), true);
+  assert.equal(existsSync(path.join(codexHome, 'hooks.json')), false);
 });
