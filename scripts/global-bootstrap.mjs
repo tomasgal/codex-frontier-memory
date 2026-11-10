@@ -14,6 +14,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveStoragePaths, projectIdentity, assertSafeStorage, canonicalPath } from '../src/storage/paths.ts';
+import { deploy as deployContext, editConfig as editContextConfig, editHooks as editContextHooks, commandFor as contextCommandFor } from './cfm-context-config.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BEGIN = '# BEGIN CFM GLOBAL (public bootstrap v1)';
@@ -24,13 +25,15 @@ const serialize = data => JSON.stringify(data, null, 2) + '\n';
 
 export function parseGlobalArgs(args) {
   const action = args.shift();
-  if (!['install', 'status', 'uninstall'].includes(action)) fail('Usage: node scripts/global-bootstrap.mjs install|status|uninstall [--dry-run]');
-  let dryRun = false;
+  if (!['install', 'status', 'uninstall'].includes(action)) fail('Usage: node scripts/global-bootstrap.mjs install|status|uninstall [--dry-run] [--adaptive-context (install only)]');
+  let dryRun = false, adaptiveContext = false;
   while (args.length) {
-    if (args.shift() !== '--dry-run' || dryRun) fail('Unknown or duplicate argument');
-    dryRun = true;
+    const arg = args.shift();
+    if (arg === '--dry-run' && !dryRun) dryRun = true;
+    else if (arg === '--adaptive-context' && action === 'install' && !adaptiveContext) adaptiveContext = true;
+    else fail('Unknown, duplicate or inapplicable argument');
   }
-  return { action, dryRun };
+  return { action, dryRun, adaptiveContext };
 }
 
 function within(parent, child) {
@@ -193,6 +196,13 @@ export function globalBootstrap(options, injectedTools) {
   const configFile = path.join(env.CODEX_HOME || path.join(homedir(), '.codex'), 'config.toml');
   const receiptFile = path.join(paths.directory, 'bootstrap', 'global-public-v1.json');
   const server = path.join(source, 'dist/src/mcp/server.js');
+  const context = {
+    codexHome: path.dirname(configFile),
+    node: process.execPath,
+    contextCli: path.join(source, 'dist/src/hooks/context-cli.js'),
+    identity,
+  };
+  const hooksFile = path.join(context.codexHome, 'hooks.json');
   for (const item of [paths.directory, identity, configFile, receiptFile, source]) requirePrivateLocal(item);
   rejectGitParent(configFile);
   rejectGitParent(paths.policy);
@@ -201,6 +211,13 @@ export function globalBootstrap(options, injectedTools) {
   const beforeConfig = read(configFile);
   const beforePolicy = read(paths.policy);
   const beforeReceipt = read(receiptFile);
+  const beforeHooks = read(hooksFile);
+  const hasAdaptive = Boolean(beforeConfig?.includes('# BEGIN CFM ADAPTIVE CONTEXT')
+    || beforeHooks?.includes('CFM adaptive context supervisor'));
+  const preflightAdaptive = (config, mode) => {
+    editContextConfig(config ?? '', mode);
+    editContextHooks(beforeHooks ?? '', contextCommandFor(context.node, context.contextCli, context.identity), mode);
+  };
   const policy = policyValue(beforePolicy);
   const receipt = beforeReceipt === null ? null : JSON.parse(beforeReceipt);
   if (receipt && (receipt.version !== 1 || receipt.identity !== canonicalPath(identity)
@@ -219,8 +236,16 @@ export function globalBootstrap(options, injectedTools) {
         else removeBlock(beforeConfig, item.after.slice((item.before ?? '').length));
       } catch { installed = false; }
     }
+    let adaptiveContext = 'not-installed';
+    if (hasAdaptive) {
+      try {
+        deployContext({ mode: 'status', ...context });
+        adaptiveContext = 'installed';
+      } catch { adaptiveContext = 'inconsistent'; }
+    }
     return { mode: 'global', installed, authorized, recoveryRequired: receipt?.phase === 'pending',
-      databasePresent: existsSync(paths.database) };
+      adaptiveContext, databasePresent: existsSync(paths.database),
+      contextDatabasePresent: existsSync(path.join(paths.directory, 'context.sqlite')) };
   }
 
   if (receipt?.phase === 'pending') {
@@ -242,6 +267,13 @@ export function globalBootstrap(options, injectedTools) {
       const item = receipt.changes.find(change => change.file === configFile);
       if (!item || !authorized) fail('Installed configuration is modified, OFF, or revoked; reconcile manually');
       removeBlock(beforeConfig, item.after.slice((item.before ?? '').length));
+      if (options.adaptiveContext) {
+        preflightAdaptive(beforeConfig, 'install');
+        if (!options.dryRun) deployContext({ mode: 'install', ...context });
+        return { action: 'install', mode: 'global', unchanged: hasAdaptive && !options.dryRun,
+          adaptiveContext: options.dryRun ? 'planned' : 'installed',
+          dryRun: !!options.dryRun };
+      }
       return { action: 'install', mode: 'global', unchanged: true };
     }
     if (beforeConfig?.includes('frontier_memory') || beforeConfig?.includes(BEGIN)) {
@@ -254,6 +286,7 @@ export function globalBootstrap(options, injectedTools) {
     const newConfig = append(beforeConfig, block);
     const newPolicy = serialize({ ...policy, enabled: true, allowedProjects: [...new Set([...policy.allowedProjects, canonicalPath(identity)])] });
     if (Buffer.byteLength(newPolicy) > 64 * 1024) fail('Resulting policy is too large');
+    if (options.adaptiveContext) preflightAdaptive(newConfig, 'install');
     changes = [{ file: configFile, before: beforeConfig, after: newConfig }];
     if (beforePolicy !== newPolicy) changes.push({ file: paths.policy, before: beforePolicy, after: newPolicy });
     if (!options.dryRun) {
@@ -263,6 +296,11 @@ export function globalBootstrap(options, injectedTools) {
     }
   } else {
     if (!receipt) return { action: 'uninstall', mode: 'global', unchanged: true };
+    if (hasAdaptive) {
+      preflightAdaptive(beforeConfig, 'uninstall');
+      // Check that both managed Codex files can be safely changed before touching the MCP block.
+      deployContext({ mode: 'uninstall-dry-run', ...context });
+    }
     const configChange = receipt.changes.find(change => change.file === configFile);
     if (!configChange) fail('Receipt has no managed Codex configuration');
     const addition = configChange.after.slice((configChange.before ?? '').length);
@@ -287,7 +325,10 @@ export function globalBootstrap(options, injectedTools) {
 
   const result = { action: options.action, mode: 'global', dryRun: !!options.dryRun,
     changed: changes.map(item => item.file === configFile ? 'Codex config' : 'local consent policy'),
-    database: 'preserved' };
+    adaptiveContext: options.action === 'install'
+      ? (options.adaptiveContext ? (options.dryRun ? 'planned' : 'installed') : 'not-requested')
+      : (hasAdaptive ? (options.dryRun ? 'removal-planned' : 'removed') : 'not-installed'),
+    database: 'preserved', contextDatabase: 'preserved' };
   if (options.dryRun) return result;
   for (const change of changes) if (read(change.file) !== change.before) fail('Configuration changed during preflight');
   if (read(receiptFile) !== beforeReceipt) fail('Installer receipt changed during preflight');
@@ -296,10 +337,22 @@ export function globalBootstrap(options, injectedTools) {
   if (Buffer.byteLength(serialize(journal)) > MAX_CONFIG) fail('Journal exceeds size limit');
   if (options.action === 'install') mkdirSync(identity, { recursive: true, mode: 0o700 });
   write(receiptFile, serialize(journal));
+  let contextApplied = false;
   try {
     for (const change of changes) write(change.file, change.after);
+    if (options.action === 'install' && options.adaptiveContext) {
+      deployContext({ mode: 'install', ...context });
+      contextApplied = true;
+    } else if (options.action === 'uninstall' && hasAdaptive) {
+      deployContext({ mode: 'uninstall', ...context });
+      contextApplied = true;
+    }
     write(receiptFile, options.action === 'install' ? serialize({ ...journal, phase: 'installed', previousReceipt: null }) : null);
   } catch (error) {
+    if (contextApplied) {
+      try { deployContext({ mode: options.action === 'install' ? 'uninstall' : 'install', ...context }); }
+      catch { /* caller must reconcile the partially modified adaptive installation */ }
+    }
     for (const change of [...changes].reverse()) if (read(change.file) === change.after) write(change.file, change.before);
     write(receiptFile, beforeReceipt);
     throw error;
