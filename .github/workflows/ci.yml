@@ -18,3 +18,23 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
+      - name: Smoke test real global install and rollback (synthetic Windows profile)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm.cmd install --global @openai/codex@0.167.0
+          $env:CODEX_HOME = Join-Path $env:RUNNER_TEMP 'cfm-synthetic-codex-home'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'cfm-synthetic-local-state'
+          New-Item -ItemType Directory -Force $env:CODEX_HOME, $env:LOCALAPPDATA | Out-Null
+          node scripts/global-bootstrap.mjs install --dry-run
+          node scripts/global-bootstrap.mjs install
+          node scripts/global-bootstrap.mjs status
+          codex mcp get frontier_memory --json
+          node scripts/global-bootstrap.mjs uninstall
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'codex-frontier-memory\win32\memory.sqlite')) {
+            throw 'Installer unexpectedly created a live memory database'
+          }
+          if ((Test-Path (Join-Path $env:CODEX_HOME 'config.toml')) -and
+              (Select-String -Path (Join-Path $env:CODEX_HOME 'config.toml') -Pattern 'frontier_memory' -Quiet)) {
+            throw 'Uninstall left MCP registration behind'
+          }
