@@ -66,7 +66,7 @@ The installer reads only relevant local Codex configuration and CFM policy to pr
 
 ## Project-scoped installation: Windows and WSL
 
-For strict single-project authorization, use the existing `scripts/bootstrap.mjs`, described in [README](README.md#cfm-lite-bootstrap-codex-cli-01670). Install Node.js 24.x, Git and Codex CLI 0.167.0. Clone this public repository to a separate, genuinely local checkout on each OS.
+For strict single-project authorization, use the existing `scripts/bootstrap.mjs`, described in [README](README.md#cfm-lite-project-scoped-bootstrap-codex-cli-01670). Install Node.js 24.x, Git and Codex CLI 0.167.0. Clone this public repository to a separate, genuinely local checkout on each OS.
 
 Windows PowerShell, from the checkout:
 
