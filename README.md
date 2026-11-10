@@ -235,3 +235,8 @@ Broader session capture, session-state storage, automatic verification, full-tex
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE). If upstream code is imported, preserve the applicable attribution and change notices.
+
+
+## Adaptive context supervision (optional)
+
+CFM now includes an opt-in, per-session context supervisor: it checks every ten user prompts, samples approximate Codex context pressure from local rollout metadata, and records only hashed identifiers and counters in a separate OS-local context.sqlite. At higher pressure it gives the agent a bounded reminder to preserve verified decisions and fixes in CFM. Codex itself performs active-context compaction through model_post_turn_compact_threshold_percent = 80; the supervisor never rewrites model traffic or raw conversation history. The existing global CFM installation is unchanged. See [docs/ADAPTIVE_CONTEXT.md](docs/ADAPTIVE_CONTEXT.md) for setup, constraints, and rollback.
