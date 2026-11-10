@@ -27,19 +27,50 @@ does not persist prompts, tool responses or transcript content. Usage data
 are approximate and may be absent or stale; never use the observer as a hard
 overflow safety mechanism. The OS-local SQLite database is not encrypted.
 
-## Global Windows bootstrap
+## Public global Windows installer (opt-in)
 
-The shared Windows bootstrap in the private handoff repository now runs
-scripts/cfm-context-config.mjs after updating and building this public CFM source.
-It updates the user-level Codex TOML and global CODEX_HOME/hooks.json and
-configures native post-turn compaction at 80%. Repeated installs are idempotent.
-The existing global memory identity and MCP bridge remain intact. The user may
-need to trust the newly configured hooks once via /hooks in Codex.
+The source-only public [installation workflow](../INSTALL.md) supports adaptive
+context supervision as an **explicit option** of the global CFM installer:
 
-For inspection or rollback (all paths must be absolute):
+```powershell
+# Install MCP memory without context hooks (default)
+node scripts/global-bootstrap.mjs install
 
-    node scripts/cfm-context-config.mjs status CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT
-    node scripts/cfm-context-config.mjs uninstall CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT
+# Explicitly add the optional context supervisor on a new or existing public
+# global installation; the dry-run must not modify Codex configuration.
+node scripts/global-bootstrap.mjs install --adaptive-context --dry-run
+node scripts/global-bootstrap.mjs install --adaptive-context
+node scripts/global-bootstrap.mjs status
+```
+
+This adds three global Codex hooks in `CODEX_HOME/hooks.json` and the native
+`model_post_turn_compact_threshold_percent = 80` key in the user-level
+`config.toml`. The installer preserves unrelated hook groups and settings,
+refuses incompatible unmanaged compaction values, and leaves all memory
+databases untouched. Hooks may need approval via `/hooks` in the next Codex
+session. Check `/mcp`, `memory_status`, and `/hooks` separately: configuration
+success alone is not proof that the current runtime delivered any hooks.
+
+The installer `status` reports `adaptiveContext: installed`, `not-installed`,
+or `inconsistent`. Its global `uninstall --dry-run` previews removal,
+and `uninstall` removes both owned context settings and the MCP registration
+when both were installed, without deleting `context.sqlite` or `memory.sqlite`.
+An existing global installation created by another bootstrap is **not**
+silently replaced. Those installations require explicit manual reconciliation.
+
+The lower-level `scripts/cfm-context-config.mjs` remains available to advanced
+operators for independent adaptive-config management; its argument order is
+`MODE CODEX_HOME NODE_EXE CONTEXT_CLI IDENTITY_ROOT` for
+`install`, `dry-run`, `status`, `uninstall-dry-run`, and `uninstall`.
+
+### Token-efficiency scope
+
+The supervisor may reduce repeated long-context reconstruction by encouraging
+short verified checkpoints and selective retrieval. It does **not** compress
+model traffic, truncate tool outputs, guarantee context retention, or measure
+saved billable tokens. No benchmark demonstrating a specific token reduction
+percentage is available. The cost of context hooks and optional recall itself
+must be accounted for in any future benchmark.
 
 ## Enable on a trusted project (manual installation)
 

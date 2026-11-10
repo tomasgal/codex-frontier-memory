@@ -59,6 +59,11 @@ test('context deployment installs, verifies and uninstalls safely without privat
   assert.equal(deploy({ mode: 'status', ...args }).changed, false);
   assert.equal(deploy({ mode: 'install', ...args }).changed, false);
   assert.ok(JSON.parse(readFileSync(hooks, 'utf8')).hooks.PreCompact.length === 1);
+  const currentToml = readFileSync(config, 'utf8');
+  const currentHooks = readFileSync(hooks, 'utf8');
+  assert.deepEqual(deploy({ mode: 'uninstall-dry-run', ...args }), { mode: 'uninstall-dry-run', changed: true });
+  assert.equal(readFileSync(config, 'utf8'), currentToml);
+  assert.equal(readFileSync(hooks, 'utf8'), currentHooks);
   assert.equal(deploy({ mode: 'uninstall', ...args }).changed, true);
   assert.equal(readFileSync(config, 'utf8'), originalConfig);
   assert.deepEqual(JSON.parse(readFileSync(hooks, 'utf8')), JSON.parse(originalHooks));

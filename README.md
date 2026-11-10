@@ -81,9 +81,14 @@ Set-Location "$env:LOCALAPPDATA\cfm-lite-source"
 node scripts/global-bootstrap.mjs install --dry-run
 node scripts/global-bootstrap.mjs install
 node scripts/global-bootstrap.mjs status
+
+# Optional: adaptive context checkpoint hooks and native 80% compaction
+node scripts/global-bootstrap.mjs install --adaptive-context --dry-run
+node scripts/global-bootstrap.mjs install --adaptive-context
+node scripts/global-bootstrap.mjs status
 ```
 
-Open a new Codex session and check `/mcp` and `memory_status`. Existing global registrations are never overwritten, and no personal database, private archive, or private bootstrap is bundled. Global mode deliberately shares its local memory across projects; the project-scoped mode remains available below.
+Open a new Codex session and check `/mcp` and `memory_status`. Existing global registrations are never overwritten, and no personal database, private archive, or private bootstrap is bundled. Global mode deliberately shares its local memory across projects; the project-scoped mode remains available below. The optional adaptive workflow adds `UserPromptSubmit`, `PreCompact`, and `PostCompact` hooks and native post-turn compaction configuration; check `/hooks` after installing. It reports approximate context pressure and encourages saving verified summaries, **not** guaranteed billable-token savings. See [Adaptive Context](docs/ADAPTIVE_CONTEXT.md) for details. Running `uninstall` removes the CFM-managed hooks and compaction setting if present while preserving both SQLite stores.
 
 ## Build and synthetic tests
 
