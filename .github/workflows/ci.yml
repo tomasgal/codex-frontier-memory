@@ -30,11 +30,29 @@ jobs:
           node scripts/global-bootstrap.mjs install
           node scripts/global-bootstrap.mjs status
           codex mcp get frontier_memory --json
+          node scripts/global-bootstrap.mjs install --adaptive-context --dry-run
+          node scripts/global-bootstrap.mjs install --adaptive-context
+          $status = node scripts/global-bootstrap.mjs status | ConvertFrom-Json
+          if ($status.adaptiveContext -ne 'installed') { throw 'Adaptive hooks not registered' }
+          if (-not (Select-String -Path (Join-Path $env:CODEX_HOME 'config.toml') -Pattern 'model_post_turn_compact_threshold_percent = 80' -Quiet)) {
+            throw 'Native compaction threshold missing'
+          }
+          $hooks = Get-Content (Join-Path $env:CODEX_HOME 'hooks.json') -Raw | ConvertFrom-Json
+          foreach ($event in @('UserPromptSubmit', 'PreCompact', 'PostCompact')) {
+            if (-not $hooks.hooks.$event) { throw "Adaptive hook missing: $event" }
+          }
+          node scripts/global-bootstrap.mjs uninstall --dry-run
           node scripts/global-bootstrap.mjs uninstall
+          $post = node scripts/global-bootstrap.mjs status | ConvertFrom-Json
+          if ($post.adaptiveContext -ne 'not-installed') { throw 'Adaptive hooks survived uninstall' }
           if (Test-Path (Join-Path $env:LOCALAPPDATA 'codex-frontier-memory\win32\memory.sqlite')) {
             throw 'Installer unexpectedly created a live memory database'
           }
           if ((Test-Path (Join-Path $env:CODEX_HOME 'config.toml')) -and
               (Select-String -Path (Join-Path $env:CODEX_HOME 'config.toml') -Pattern 'frontier_memory' -Quiet)) {
             throw 'Uninstall left MCP registration behind'
+          }
+          if ((Test-Path (Join-Path $env:CODEX_HOME 'config.toml')) -and
+              (Select-String -Path (Join-Path $env:CODEX_HOME 'config.toml') -Pattern 'CFM ADAPTIVE CONTEXT' -Quiet)) {
+            throw 'Uninstall left managed context configuration behind'
           }
