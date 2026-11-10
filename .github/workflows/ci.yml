@@ -25,7 +25,7 @@ jobs:
           npm.cmd install --global @openai/codex@0.167.0
           $env:CODEX_HOME = Join-Path $env:RUNNER_TEMP 'cfm-synthetic-codex-home'
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'cfm-synthetic-local-state'
-          New-Item -ItemType Directory -Force $env:CODEX_HOME, $env:LOCALAPPDATA | Out-Null
+          New-Item -ItemType Directory -Path @($env:CODEX_HOME, $env:LOCALAPPDATA) -Force | Out-Null
           node scripts/global-bootstrap.mjs install --dry-run
           node scripts/global-bootstrap.mjs install
           node scripts/global-bootstrap.mjs status
