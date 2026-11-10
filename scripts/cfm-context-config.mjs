@@ -35,7 +35,9 @@ export function editConfig(input, mode = 'install') {
   if (mode !== 'install') throw new Error('Unknown edit mode');
   // Root-level TOML configuration must precede the first [section] header.
   // An existing explicit user setting stays under user control.
-  const explicit = clean.match(/^\s*model_post_turn_compact_threshold_percent\s*=\s*([^\r\n#]+)/gm);
+  const section = clean.search(/^[ \t]*\[/m);
+  const rootScope = section < 0 ? clean : clean.slice(0, section);
+  const explicit = rootScope.match(/^[ \t]*model_post_turn_compact_threshold_percent\s*=\s*([^\r\n#]+)/gm);
   if (explicit?.length > 1) throw new Error('Multiple unmanaged compaction settings');
   if (explicit?.length === 1) {
     if (!/^\s*model_post_turn_compact_threshold_percent\s*=\s*80\s*$/.test(explicit[0])) {
