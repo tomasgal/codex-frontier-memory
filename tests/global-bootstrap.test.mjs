@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseGlobalArgs, globalConfig, globalBootstrap } from '../scripts/global-bootstrap.mjs';
@@ -59,7 +59,7 @@ test('global install is opt-in, idempotent and fully local; rollback preserves m
   assert.equal(f.run('status').installed, true);
   assert.equal(f.run('status').authorized, true);
   const p = JSON.parse(readFileSync(f.policy, 'utf8'));
-  assert.deepEqual(p.allowedProjects, [f.identity.toLowerCase()]);
+  assert.deepEqual(p.allowedProjects, [realpathSync.native(f.identity).toLowerCase()]);
   const installed = readFileSync(f.config, 'utf8');
   assert.match(installed, /^# unrelated Codex options/m);
   assert.match(installed, /CFM GLOBAL \(public bootstrap v1\)/);
