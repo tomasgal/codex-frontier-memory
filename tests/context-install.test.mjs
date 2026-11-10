@@ -72,7 +72,9 @@ test('Windows cmd shell starts the managed hook executable with its global ident
   mkdirSync(identity);
   writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));");
   const command = commandFor(process.execPath, script, identity);
-  const execution = spawnSync('cmd.exe', ['/d', '/s', '/c', command], { encoding: 'utf8' });
+  const execution = spawnSync('cmd.exe', ['/C', '"' + command + '"'], {
+    encoding: 'utf8', windowsVerbatimArguments: true,
+  });
   assert.equal(execution.status, 0, execution.stderr);
   assert.deepEqual(JSON.parse(execution.stdout), [identity, '--global']);
 });
