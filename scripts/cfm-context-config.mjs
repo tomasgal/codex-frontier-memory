@@ -5,7 +5,8 @@
  * This script edits only the CFM-managed TOML block and CFM-managed hook groups.
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -94,13 +95,45 @@ export function editHooks(input, command, mode = 'install') {
   return JSON.stringify(root, null, 2) + '\n';
 }
 
+/**
+ * Preserve a deliberate Codex file symlink. Resolve and edit the final local
+ * file; replacing the link itself would silently break the user's setup.
+ * Scope symlink targets to the OS account's home, reject links into Git trees
+ * and unsupported reparse objects. Read-only status and dry-run use this too.
+ */
 function readTarget(target) {
-  if (!existsSync(target)) return { exists: false, value: '' };
-  const st = lstatSync(target);
+  let link;
+  try {
+    link = lstatSync(target);
+  } catch (e) {
+    if (e?.code === 'ENOENT') return { exists: false, value: '', destination: target, linked: false };
+    throw e;
+  }
+  let destination = target;
+  let linked = false;
+  if (link.isSymbolicLink()) {
+    linked = true;
+    destination = realpathSync.native(target);
+    const home = realpathSync.native(homedir());
+    const rel = path.relative(home, destination);
+    if (rel === '' || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
+      throw new Error('Codex config link targets a file outside this user profile');
+    }
+    let cursor = path.dirname(destination);
+    while (cursor !== path.dirname(cursor)) {
+      if (existsSync(path.join(cursor, '.git'))) {
+        throw new Error('Codex config link targets a Git checkout; review that managed file manually');
+      }
+      cursor = path.dirname(cursor);
+    }
+  } else if (!link.isFile()) {
+    throw new Error('Unsupported configuration reparse point');
+  }
+  const st = lstatSync(destination);
   if (!st.isFile() || st.isSymbolicLink() || st.nlink !== 1 || st.size > LIMIT) {
     throw new Error('Unsafe or oversized configuration target');
   }
-  return { exists: true, value: readFileSync(target, 'utf8') };
+  return { exists: true, value: readFileSync(destination, 'utf8'), destination, linked };
 }
 
 function atomicWrite(target, value) {
@@ -132,11 +165,22 @@ export function deploy({ mode, codexHome, node, contextCli, identity }) {
     return { mode, changed: false };
   }
   if (mode === 'dry-run') return { mode, changed: changed.some(Boolean) };
-  const targets = [config, hooks];
+  const targets = before.map(x => x.destination);
+  // Detect link retargeting before writing, including links in a different
+  // configuration. A link resolution change must stop the installation.
+  const assertLinksStable = () => {
+    for (let i = 0; i < before.length; i++) {
+      if (before[i].linked && realpathSync.native([config, hooks][i]) !== targets[i]) {
+        throw new Error('Codex configuration link changed during setup');
+      }
+    }
+  };
   const done = [];
   try {
+    assertLinksStable();
     for (let i = 0; i < targets.length; i++) {
       if (!changed[i]) continue;
+      assertLinksStable();
       atomicWrite(targets[i], after[i]);
       done.push(i);
     }
