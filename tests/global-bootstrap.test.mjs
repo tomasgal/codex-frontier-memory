@@ -98,7 +98,9 @@ test('an explicit later OFF decision survives reinstall and uninstall', { skip: 
   f.run('uninstall');
   assert.equal(existsSync(f.config), false);
   assert.equal(existsSync(f.receipt), false);
-  assert.equal(existsSync(f.policy), false);
+  const persisted = JSON.parse(readFileSync(f.policy, 'utf8'));
+  assert.equal(persisted.enabled, false);
+  assert.deepEqual(persisted.allowedProjects, []);
 });
 
 test('interrupted global transaction is recoverable without deleting unrelated data', { skip: process.platform !== 'win32' }, t => {
